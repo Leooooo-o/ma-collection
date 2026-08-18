@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Collection de pièces du monde</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<style>
+  :root{
+    --bg: #15130f;
+    --surface: #201c15;
+    --surface2: #292319;
+    --ink: #ece4d3;
+    --ink-dim: #b6ab95;
+    --gold: #c9a253;
+    --copper: #a9673f;
+    --hairline: #3a3327;
+    --ocean: #0e1c1f;
+    --land: #35301f;
+    --land-hover: #c9a253;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Source Serif 4', serif; -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--gold); color:#15130f;}
+  a{color:inherit;}
+  .display{font-family:'Fraunces', serif; font-optical-sizing:auto;}
+  .mono{font-family:'IBM Plex Mono', monospace; letter-spacing:0.02em;}
+
+  header.top{
+    position:sticky; top:0; z-index:50;
+    display:flex; align-items:baseline; justify-content:space-between;
+    padding:22px 5vw 16px; background:linear-gradient(var(--bg) 75%, transparent);
+    border-bottom:1px solid var(--hairline);
+  }
+  header.top .brand{
+    font-family:'Fraunces', serif; font-weight:600; font-size:22px; letter-spacing:0.01em;
+  }
+  header.top .brand span{color:var(--gold); font-style:italic; font-weight:500;}
+  nav.tabs{display:flex; gap:6px;}
+  nav.tabs button{
+    background:none; border:1px solid var(--hairline); color:var(--ink-dim);
+    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.08em; text-transform:uppercase;
+    padding:9px 16px; cursor:pointer; transition:all .2s ease;
+  }
+  nav.tabs button.active, nav.tabs button:hover{
+    border-color:var(--gold); color:var(--gold);
+  }
+
+  main{padding:0 5vw 80px; max-width:1400px; margin:0 auto;}
+
+  /* ---- HERO ---- */
+  .hero{
+    padding:64px 0 40px; border-bottom:1px solid var(--hairline); margin-bottom:40px;
+  }
+  .hero .eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--copper);
+    text-transform:uppercase; letter-spacing:0.18em; margin-bottom:14px;
+  }
+  .hero h1{
+    font-family:'Fraunces', serif; font-weight:600; font-size:clamp(34px,5vw,62px);
+    line-height:1.02; margin:0 0 18px; max-width:14ch;
+  }
+  .hero h1 em{color:var(--gold); font-style:italic; font-weight:500;}
+  .hero p{color:var(--ink-dim); max-width:56ch; font-size:17px; line-height:1.6; margin:0 0 22px;}
+  .hero .stats{display:flex; gap:36px; margin-top:28px; flex-wrap:wrap;}
+  .hero .stat b{display:block; font-family:'Fraunces', serif; font-size:32px; color:var(--gold); font-weight:600;}
+  .hero .stat span{font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.1em;}
+
+  /* ---- VIEWS ---- */
+  .view{display:none;}
+  .view.active{display:block;}
+
+  /* ---- MAP ---- */
+  #mapwrap{
+    background:var(--ocean); border:1px solid var(--hairline); position:relative; overflow:hidden;
+  }
+  #mapwrap svg{width:100%; height:auto; display:block;}
+  #mapwrap path.land{fill:var(--land); stroke:var(--ocean); stroke-width:0.5; transition:fill .15s ease;}
+  #mapwrap path.land.has-data{cursor:pointer;}
+  #mapwrap path.land.has-data:hover{fill:var(--land-hover);}
+  #maphint{
+    position:absolute; bottom:16px; left:16px; font-family:'IBM Plex Mono', monospace;
+    font-size:11px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.08em;
+    background:rgba(21,19,15,0.85); padding:8px 12px; border:1px solid var(--hairline);
+  }
+  #maptooltip{
+    position:absolute; pointer-events:none; background:var(--gold); color:#15130f;
+    font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:600;
+    padding:4px 10px; display:none; white-space:nowrap; z-index:10;
+  }
+
+  /* ---- INDEX A-Z ---- */
+  .index-grid{display:block;}
+  .letter-group{margin-bottom:6px;}
+  .letter-head{
+    font-family:'Fraunces', serif; font-size:15px; color:var(--copper); font-style:italic;
+    padding:14px 0 6px; border-bottom:1px solid var(--hairline); margin-bottom:6px;
+  }
+  .country-row{
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    padding:13px 4px; border-bottom:1px solid var(--hairline); cursor:pointer;
+    transition:padding-left .15s ease, color .15s ease;
+  }
+  .country-row:hover{padding-left:12px; color:var(--gold);}
+  .country-row .name{font-family:'Fraunces', serif; font-size:19px; font-weight:500;}
+  .country-row .count{font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--ink-dim); text-transform:uppercase;}
+
+  /* ---- COUNTRY DETAIL ---- */
+  #countryPanel{display:none;}
+  #countryPanel.active{display:block;}
+  .back-link{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-dim);
+    text-transform:uppercase; letter-spacing:0.08em; cursor:pointer; display:inline-block; margin-bottom:24px;
+  }
+  .back-link:hover{color:var(--gold);}
+  .country-header{
+    display:flex; align-items:baseline; gap:18px; margin-bottom:8px; flex-wrap:wrap;
+  }
+  .country-header h2{font-family:'Fraunces', serif; font-size:44px; font-weight:600; margin:0;}
+  .country-header .en{font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.1em;}
+  .country-sub{color:var(--ink-dim); font-size:14px; margin-bottom:36px; font-family:'IBM Plex Mono', monospace;}
+
+  .subtab-bar{
+    display:flex; gap:6px; flex-wrap:wrap; margin:28px 0 30px; padding-bottom:20px;
+    border-bottom:1px solid var(--hairline);
+  }
+  .subtab-btn{
+    background:none; border:1px solid var(--hairline); color:var(--ink-dim);
+    font-family:'Fraunces', serif; font-size:15px; font-weight:500;
+    padding:10px 18px; cursor:pointer; transition:all .18s ease; border-radius:2px;
+  }
+  .subtab-btn .stcount{
+    display:block; font-family:'IBM Plex Mono', monospace; font-size:9px; text-transform:uppercase;
+    letter-spacing:0.06em; opacity:0.65; margin-top:2px;
+  }
+  .subtab-btn.active{border-color:var(--gold); color:var(--gold); background:rgba(201,162,83,0.08);}
+  .subtab-btn:hover{color:var(--gold);}
+  .subtab-panel{display:none;}
+  .subtab-panel.active{display:block;}
+  .section-block{margin-bottom:0; border-bottom:1px solid var(--hairline);}
+  .section-toggle{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    width:100%; background:none; border:none; text-align:left; cursor:pointer;
+    padding:18px 4px; color:var(--ink);
+  }
+  .section-toggle .stitle{
+    font-family:'Fraunces', serif; font-style:italic; font-weight:500; font-size:19px; color:var(--gold);
+  }
+  .section-toggle .smeta{
+    display:flex; align-items:center; gap:14px; flex-shrink:0;
+  }
+  .section-toggle .scount{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--ink-dim); text-transform:uppercase; white-space:nowrap;
+  }
+  .section-toggle .chevron{
+    width:11px; height:11px; border-right:2px solid var(--ink-dim); border-bottom:2px solid var(--ink-dim);
+    transform:rotate(-45deg); transition:transform .25s ease; flex-shrink:0;
+  }
+  .section-block.open .chevron{transform:rotate(45deg);}
+  .section-body{max-height:0; overflow:hidden; transition:max-height .3s ease;}
+  .section-block.open .section-body{max-height:none;}
+  .section-body-inner{padding-bottom:22px;}
+  table.coins{width:100%; border-collapse:collapse;}
+  table.coins tr{border-bottom:1px solid var(--hairline);}
+  table.coins td{padding:12px 10px; vertical-align:middle;}
+  table.coins td.nom{font-family:'Fraunces', serif; font-size:16px; font-weight:500; width:22%;}
+  table.coins td.imgs{width:110px;}
+  table.coins td.infos{color:var(--ink-dim); font-size:14px; line-height:1.5;}
+  .coin-badges{display:flex; gap:8px;}
+  .coin-badge{
+    width:72px; height:72px; border-radius:50%; overflow:hidden;
+    border:2px solid var(--gold); background:var(--surface2); flex-shrink:0;
+    position:relative; cursor:zoom-in;
+  }
+  .coin-badge:hover{border-color:#e6c988; transform:scale(1.05); transition:transform .15s ease;}
+  .coin-badge img{width:100%; height:100%; object-fit:cover;}
+  .no-img{color:var(--hairline); font-family:'IBM Plex Mono', monospace; font-size:11px;}
+  .owned-dot{
+    position:absolute; top:-2px; right:-2px; width:16px; height:16px; border-radius:50%;
+    background:#3fae5c; border:2px solid var(--bg);
+  }
+  tr.owned td.nom{color:#6fcf87;}
+  tr.owned td.nom::after{
+    content:'possédée'; display:block; font-family:'IBM Plex Mono', monospace;
+    font-size:9px; text-transform:uppercase; letter-spacing:0.08em; color:#3fae5c; margin-top:3px;
+  }
+
+  /* ---- Lightbox ---- */
+  #lightbox{
+    position:fixed; inset:0; background:rgba(10,9,6,0.92); z-index:200;
+    display:none; align-items:center; justify-content:center; cursor:zoom-out;
+    flex-direction:column; gap:18px;
+  }
+  #lightbox.open{display:flex;}
+  #lightbox img{
+    width:min(70vw, 420px); height:min(70vw, 420px); object-fit:cover; border-radius:50%;
+    border:4px solid var(--gold); box-shadow:0 0 60px rgba(201,162,83,0.25);
+  }
+  #lightbox .lbcaption{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-dim);
+    text-transform:uppercase; letter-spacing:0.1em;
+  }
+  #lightbox .lbclose{
+    position:absolute; top:24px; right:5vw; font-family:'IBM Plex Mono', monospace;
+    font-size:12px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.1em;
+    border:1px solid var(--hairline); padding:8px 14px; cursor:pointer;
+  }
+  #lightbox .lbclose:hover{color:var(--gold); border-color:var(--gold);}
+
+  footer{
+    text-align:center; padding:40px 5vw; color:var(--ink-dim); font-family:'IBM Plex Mono', monospace;
+    font-size:11px; letter-spacing:0.08em; text-transform:uppercase; border-top:1px solid var(--hairline);
+  }
+
+  @media (max-width:640px){
+    .country-header h2{font-size:30px;}
+    table.coins td.infos{display:none;}
+    table.coins td.nom{width:auto;}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">Collection <span>numismatique</span></div>
+  <nav class="tabs">
+    <button id="tabMap" class="active">Carte</button>
+    <button id="tabIndex">Index A-Z</button>
+  </nav>
+</header>
+
+<main>
+
+  <div id="viewMap" class="view active">
+    <section class="hero">
+      <div class="eyebrow">Catalogue personnel</div>
+      <h1>Chaque pièce, <em>chaque pays</em>, un seul endroit.</h1>
+      <p>Explorez la collection en cliquant directement sur un pays de la carte, ou passez par l'index alphabétique pour retrouver un pays précis.</p>
+      <div class="stats">
+        <div class="stat"><b id="statCountries">0</b><span>Pays</span></div>
+        <div class="stat"><b id="statSections">0</b><span>Séries</span></div>
+        <div class="stat"><b id="statCoins">0</b><span>Pièces référencées</span></div>
+      </div>
+    </section>
+    <div id="mapwrap">
+      <div id="maptooltip"></div>
+      <div id="maphint">Cliquez sur un pays pour voir ses sets</div>
+    </div>
+  </div>
+
+  <div id="viewIndex" class="view">
+    <section class="hero" style="padding-top:48px;">
+      <div class="eyebrow">Index alphabétique</div>
+      <h1>Tous les pays, <em>de A à Z</em>.</h1>
+    </section>
+    <div class="index-grid" id="indexGrid"></div>
+  </div>
+
+  <div id="countryPanel" class="view">
+    <span class="back-link" id="backLink">&larr; Retour</span>
+    <div class="country-header">
+      <h2 id="cName"></h2>
+      <span class="en" id="cEnName"></span>
+    </div>
+    <div class="country-sub" id="cSub"></div>
+    <div id="cSections"></div>
+  </div>
+
+</main>
+
+<footer>Collection privée &middot; Généré depuis les documents originaux</footer>
+
+<div id="lightbox">
+  <span class="lbclose" id="lbClose">Fermer &times;</span>
+  <img id="lbImg" src="" alt="">
+  <div class="lbcaption" id="lbCaption"></div>
+</div>
+
+<script>
+let INDEX = [];       // lightweight list: {key, slug, en_name, n_subtabs, n_sections, n_rows, n_owned}
+let countryKeys = [];
+const countryCache = {};   // slug -> full country data (fetched on demand)
+const indexBySlug = {};
+const indexByKey = {};
+
+async function loadIndex(){
+  const res = await fetch('data/index.json');
+  INDEX = await res.json();
+  INDEX.forEach(e=>{ indexBySlug[e.slug] = e; indexByKey[e.key] = e; });
+  countryKeys = INDEX.map(e=>e.key);
+
+  // ---------- Stats ----------
+  const totalSections = INDEX.reduce((a,e)=>a+e.n_sections,0);
+  const totalCoins = INDEX.reduce((a,e)=>a+e.n_rows,0);
+  document.getElementById('statCountries').textContent = countryKeys.length;
+  document.getElementById('statSections').textContent = totalSections;
+  document.getElementById('statCoins').textContent = totalCoins;
+
+  buildIndex();
+  initMap();
+}
+
+async function fetchCountry(slug){
+  if(countryCache[slug]) return countryCache[slug];
+  const res = await fetch(`data/countries/${slug}.json`);
+  const data = await res.json();
+  countryCache[slug] = data;
+  return data;
+}
+
+// ---------- Tabs ----------
+const tabMap = document.getElementById('tabMap');
+const tabIndex = document.getElementById('tabIndex');
+const viewMap = document.getElementById('viewMap');
+const viewIndex = document.getElementById('viewIndex');
+const countryPanel = document.getElementById('countryPanel');
+
+function showView(name){
+  [viewMap, viewIndex, countryPanel].forEach(v=>v.classList.remove('active'));
+  tabMap.classList.remove('active'); tabIndex.classList.remove('active');
+  if(name==='map'){ viewMap.classList.add('active'); tabMap.classList.add('active'); }
+  else if(name==='index'){ viewIndex.classList.add('active'); tabIndex.classList.add('active'); }
+  else if(name==='country'){ countryPanel.classList.add('active'); }
+  window.scrollTo({top:0, behavior:'instant'});
+}
+tabMap.addEventListener('click', ()=>showView('map'));
+tabIndex.addEventListener('click', ()=>showView('index'));
+document.getElementById('backLink').addEventListener('click', ()=>{
+  showView(window._lastListView || 'index');
+});
+
+// ---------- Index A-Z ----------
+function normalizeLetter(name){
+  const c = name.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'')[0].toUpperCase();
+  return /[A-Z]/.test(c) ? c : '#';
+}
+function buildIndex(){
+  const grid = document.getElementById('indexGrid');
+  grid.innerHTML = '';
+  const sorted = countryKeys.slice().sort((a,b)=>a.localeCompare(b, 'fr'));
+  const groups = {};
+  sorted.forEach(k=>{
+    const letter = normalizeLetter(k);
+    (groups[letter] = groups[letter] || []).push(k);
+  });
+  Object.keys(groups).sort().forEach(letter=>{
+    const div = document.createElement('div');
+    div.className = 'letter-group';
+    const head = document.createElement('div');
+    head.className = 'letter-head';
+    head.textContent = letter;
+    div.appendChild(head);
+    groups[letter].forEach(k=>{
+      const e = indexByKey[k];
+      const row = document.createElement('div');
+      row.className = 'country-row';
+      row.innerHTML = `<span class="name">${k}</span><span class="count">${e.n_sections} série${e.n_sections>1?'s':''} · ${e.n_rows} pièces</span>`;
+      row.addEventListener('click', ()=>{ window._lastListView='index'; openCountry(k); });
+      div.appendChild(row);
+    });
+    grid.appendChild(div);
+  });
+}
+
+// ---------- Lightbox ----------
+const lightbox = document.getElementById('lightbox');
+const lbImg = document.getElementById('lbImg');
+const lbCaption = document.getElementById('lbCaption');
+function openLightbox(src, caption){
+  lbImg.src = src;
+  lbCaption.textContent = caption || '';
+  lightbox.classList.add('open');
+}
+function closeLightbox(){ lightbox.classList.remove('open'); lbImg.src=''; }
+lightbox.addEventListener('click', closeLightbox);
+document.getElementById('lbClose').addEventListener('click', (e)=>{ e.stopPropagation(); closeLightbox(); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeLightbox(); });
+
+// ISO 3166-1 numeric codes per canonical French country name (primary, reliable map matching)
+const COUNTRY_ISO = {
+  "Afrique du sud":710,"Algérie":12,"Allemagne":276,"Andorre":20,"Angola":24,
+  "Arabie saoudite":682,"Argentine":32,"Arménie":51,"Australie":36,"Autriche":40,
+  "Azerbaïdjan":31,"Bahamas":44,"Bahreïn":48,"Bangladesh":50,"Belgique":56,
+  "Bhoutan":64,"Biélorussie":112,"Birmanie":104,"Bolivie":68,"Bosnie-Herzégovine":70,
+  "Botswana":72,"Brésil":76,"Brunei":96,"Bulgarie":100,"Burkina Faso":854,"Burundi":108,
+  "Cambodge":116,"Cameroun":120,"Canada":124,"Cap-Vert":132,"Chili":152,"Chine":156,
+  "Chypre":196,"Colombie":170,"Corée du Sud":410,"Corée du Nord":408,"Costa Rica":188,
+  "Croatie":191,"Cuba":192,"Danemark":208,"Djibouti":262,"République Dominicaine":214,
+  "Égypte":818,"Émirats arabes unis":784,"Équateur":218,"Espagne":724,"Estonie":233,
+  "France":250,"Éthiopie":231,"Fidji":242,"Finlande":246,"Gabon":266,"Gambie":270,
+  "Géorgie":268,"Ghana":288,"Grèce":300,"Guatemala":320,"Guinée":324,"Guyana":328,
+  "Haïti":332,"Honduras":340,"Hongrie":348,"Inde":356,"Indonésie":360,"Irak":368,
+  "Iran":364,"Irlande":372,"Islande":352,"Israël":376,"Italie":380,"Jamaïque":388,
+  "Japon":392,"Jordanie":400,"Kazakhstan":398,"Kenya":404,"Kirghizistan":417,"Koweït":414,
+  "Laos":418,"Lettonie":428,"Liban":422,"Libéria":430,"Libye":434,"Liechtenstein":438,
+  "Lituanie":440,"Luxembourg":442,"Macédoine":807,"Madagascar":450,"Malaisie":458,
+  "Malawi":454,"Maldives":462,"Mali":466,"Malte":470,"Maroc":504,"Maurice":480,
+  "Mauritanie":478,"Mexique":484,"Moldavie":498,"Monaco":492,"Mongolie":496,
+  "Monténégro":499,"Mozambique":508,"Namibie":516,"Népal":524,"Nicaragua":558,"Niger":562,
+  "Nigeria":566,"Norvège":578,"Nouvelle-Zélande":554,"Oman":512,"Ouganda":800,
+  "Ouzbékistan":860,"Pakistan":586,"Panama":591,"Paraguay":600,"Pays-Bas":528,"Pérou":604,
+  "Philippines":608,"Pologne":616,"Portugal":620,"Qatar":634,"République tchèque":203,
+  "Roumanie":642,"Royaume-Uni":826,"Russie":643,"Rwanda":646,"Salvador":222,
+  "Saint-Marin":674,"Sénégal":686,"Serbie":688,"Seychelles":690,"Sierra Leone":694,
+  "Singapour":702,"Slovaquie":703,"Slovénie":705,"Somalie":706,"Soudan":729,
+  "Sri Lanka":144,"Suède":752,"Suisse":756,"Suriname":740,"Syrie":760,"Tadjikistan":762,
+  "Taïwan":158,"Tanzanie":834,"Tchad":148,"Thaïlande":764,"Togo":768,
+  "Trinité-et-Tobago":780,"Tunisie":788,"Turquie":792,"Turkménistan":795,"Ukraine":804,
+  "Uruguay":858,"USA":840,"Vanuatu":548,"Venezuela":862,"Vietnam":704,"Yémen":887,
+  "Zambie":894,"Zimbabwe":716,"Guinée équatoriale":226,"Caraïbes orientales":28
+};
+// Extra English aliases to catch topojson naming variants (fallback if id match fails)
+const EN_ALIASES = {
+  "united states of america":"USA", "united states":"USA",
+  "republic of korea":"Corée du Sud", "dem. rep. korea":"Corée du Nord",
+  "czechia":"République tchèque", "czech republic":"République tchèque",
+  "macedonia":"Macédoine", "north macedonia":"Macédoine",
+  "russian federation":"Russie", "syrian arab republic":"Syrie",
+  "united republic of tanzania":"Tanzanie", "lao pdr":"Laos",
+  "brunei darussalam":"Brunei", "the bahamas":"Bahamas",
+  "bosnia and herz.":"Bosnie-Herzégovine", "central african rep.":"Centrafrique",
+  "dominican rep.":"République Dominicaine", "eq. guinea":"Guinée équatoriale",
+  "w. sahara":"Maroc", "ivory coast":"Côte d'Ivoire", "côte d'ivoire":"Côte d'Ivoire"
+};
+
+// ---------- Country detail ----------
+function toggleSection(block, forceOpen){
+  const body = block.querySelector('.section-body');
+  const isOpen = block.classList.contains('open');
+  if(forceOpen === true || (!isOpen && forceOpen === undefined)){
+    block.classList.add('open');
+    body.style.maxHeight = body.scrollHeight + 'px';
+    setTimeout(()=>{ if(block.classList.contains('open')) body.style.maxHeight = 'none'; }, 320);
+  } else {
+    if(body.style.maxHeight === 'none') body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(()=>{ body.style.maxHeight = '0px'; });
+    block.classList.remove('open');
+  }
+}
+
+function renderSubsections(container, subsections){
+  container.innerHTML = '';
+  subsections.forEach((sec, idx)=>{
+    const owned = sec.rows.filter(r=>r.owned).length;
+    const block = document.createElement('div');
+    block.className = 'section-block';
+
+    const toggle = document.createElement('button');
+    toggle.className = 'section-toggle';
+    toggle.innerHTML = `<span class="stitle">${sec.title}</span><span class="smeta"><span class="scount">${owned}/${sec.rows.length} possédées</span><span class="chevron"></span></span>`;
+    toggle.addEventListener('click', ()=>toggleSection(block));
+    block.appendChild(toggle);
+
+    const body = document.createElement('div');
+    body.className = 'section-body';
+    const inner = document.createElement('div');
+    inner.className = 'section-body-inner';
+    const table = document.createElement('table');
+    table.className = 'coins';
+    sec.rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      if(r.owned) tr.className = 'owned';
+      const imgsHtml = (r.images && r.images.length)
+        ? `<div class="coin-badges">${r.images.map((src,i)=>`<div class="coin-badge" data-idx="${i}"><img loading="lazy" src="${src}">${r.owned?'<span class="owned-dot"></span>':''}</div>`).join('')}</div>`
+        : `<span class="no-img">&mdash;</span>`;
+      tr.innerHTML = `<td class="nom">${r.nom||''}</td><td class="imgs">${imgsHtml}</td><td class="infos">${(r.infos||'').replace(/\n/g,'<br>')}</td>`;
+      table.appendChild(tr);
+      tr.querySelectorAll('.coin-badge').forEach((badge, i)=>{
+        badge.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          const side = r.images.length>1 ? (i===0?'Avers':'Revers') : '';
+          openLightbox(r.images[i], [r.nom, sec.title, side].filter(Boolean).join(' · '));
+        });
+      });
+    });
+    inner.appendChild(table);
+    body.appendChild(inner);
+    block.appendChild(body);
+    container.appendChild(block);
+    if(idx===0) toggleSection(block, true);
+  });
+}
+
+async function openCountry(key){
+  const meta = indexByKey[key];
+  if(!meta) return;
+  showView('country');
+  document.getElementById('cName').textContent = key;
+  document.getElementById('cEnName').textContent = meta.en_name || '';
+  document.getElementById('cSub').textContent = 'Chargement…';
+  const container = document.getElementById('cSections');
+  container.innerHTML = '';
+
+  const c = await fetchCountry(meta.slug);
+
+  const nSections = c.subtabs.reduce((a,st)=>a+st.subsections.length,0);
+  const nCoins = c.subtabs.reduce((a,st)=>a+st.subsections.reduce((b,s)=>b+s.rows.length,0),0);
+  const nOwned = c.subtabs.reduce((a,st)=>a+st.subsections.reduce((b,s)=>b+s.rows.filter(r=>r.owned).length,0),0);
+  document.getElementById('cSub').textContent = `${c.subtabs.length} onglet(s) · ${nSections} série(s) · ${nCoins} pièce(s) référencée(s) · ${nOwned} possédée(s)`;
+
+  const bar = document.createElement('div');
+  bar.className = 'subtab-bar';
+  const panelsWrap = document.createElement('div');
+
+  c.subtabs.forEach((st, i)=>{
+    const owned = st.subsections.reduce((a,s)=>a+s.rows.filter(r=>r.owned).length,0);
+    const total = st.subsections.reduce((a,s)=>a+s.rows.length,0);
+    const btn = document.createElement('button');
+    btn.className = 'subtab-btn' + (i===0?' active':'');
+    btn.innerHTML = `${st.title}<span class="stcount">${owned}/${total} possédées</span>`;
+    const panel = document.createElement('div');
+    panel.className = 'subtab-panel' + (i===0?' active':'');
+    renderSubsections(panel, st.subsections);
+    btn.addEventListener('click', ()=>{
+      bar.querySelectorAll('.subtab-btn').forEach(b=>b.classList.remove('active'));
+      panelsWrap.querySelectorAll('.subtab-panel').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      panel.classList.add('active');
+    });
+    bar.appendChild(btn);
+    panelsWrap.appendChild(panel);
+  });
+
+  container.appendChild(bar);
+  container.appendChild(panelsWrap);
+}
+
+// ---------- World map (D3 + world-atlas) ----------
+function initMap(){
+  const mapWrap = document.getElementById('mapwrap');
+  const width = 960, height = 500;
+  const svg = d3.select('#mapwrap').insert('svg', '#maptooltip')
+    .attr('viewBox', `0 0 ${width} ${height}`);
+  const projection = d3.geoNaturalEarth1().scale(165).translate([width/2, height/2]);
+  const path = d3.geoPath(projection);
+  const tooltip = document.getElementById('maptooltip');
+
+  const enToFr = {};
+  INDEX.forEach(e=>{
+    if(e.en_name) enToFr[e.en_name.toLowerCase()] = e.key;
+  });
+  const isoToFr = {};
+  Object.keys(COUNTRY_ISO).forEach(frName=>{
+    if(indexByKey[frName]) isoToFr[COUNTRY_ISO[frName]] = frName;
+  });
+  const WAEMU_KEY = countryKeys.find(k=>k.startsWith("Afrique de l"));
+  if(WAEMU_KEY){
+    const WAEMU_ISO = [204, 854, 384, 624, 466, 562, 686, 768];
+    WAEMU_ISO.forEach(code=>{ isoToFr[code] = WAEMU_KEY; });
+  }
+  function resolveCountry(feature){
+    const idNum = Number(feature.id);
+    if(isoToFr[idNum]) return isoToFr[idNum];
+    const name = (feature.properties && feature.properties.name) ? feature.properties.name.toLowerCase() : '';
+    if(enToFr[name]) return enToFr[name];
+    if(EN_ALIASES[name] && indexByKey[EN_ALIASES[name]]) return EN_ALIASES[name];
+    return null;
+  }
+
+  d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(topology=>{
+    const countries = topojson.feature(topology, topology.objects.countries).features;
+    svg.selectAll('path.land')
+      .data(countries)
+      .join('path')
+      .attr('class', d=> 'land' + (resolveCountry(d) ? ' has-data' : ''))
+      .attr('d', path)
+      .on('mousemove', function(event, d){
+        const fr = resolveCountry(d);
+        if(fr){
+          const rect = mapWrap.getBoundingClientRect();
+          tooltip.style.display = 'block';
+          tooltip.style.left = (event.clientX - rect.left + 14) + 'px';
+          tooltip.style.top = (event.clientY - rect.top + 6) + 'px';
+          tooltip.textContent = fr;
+        } else {
+          tooltip.style.display = 'none';
+        }
+      })
+      .on('mouseleave', ()=>{ tooltip.style.display = 'none'; })
+      .on('click', function(event, d){
+        const fr = resolveCountry(d);
+        if(fr){ window._lastListView='map'; openCountry(fr); }
+      });
+  }).catch(err=>{
+    document.getElementById('maphint').textContent = 'Carte indisponible hors-ligne (connexion internet requise pour charger le fond de carte)';
+    console.error(err);
+  });
+}
+
+loadIndex();
+</script>
+</body>
+</html>
