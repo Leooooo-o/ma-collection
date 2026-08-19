@@ -8,6 +8,61 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+    signOut, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, updateDoc
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  // ===== PASTE YOUR FIREBASE CONFIG HERE (from Firebase console > Project settings) =====
+  const firebaseConfig = {
+    apiKey: "AIzaSyD5_h8Dy8agzGFslBRGaIVeq0JB4LD03c8",
+    authDomain: "site-monnaie.firebaseapp.com",
+    projectId: "site-monnaie",
+    storageBucket: "site-monnaie.firebasestorage.app",
+    messagingSenderId: "270121006669",
+    appId: "1:270121006669:web:5a93a3a76494f06e150e04"
+  };
+  // =======================================================================================
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  let currentUser = null;
+
+  // Expose a small bridge so the rest of the (non-module) script can use Firebase.
+  window.FB = {
+    async signUp(email, password){ return createUserWithEmailAndPassword(auth, email, password); },
+    async logIn(email, password){ return signInWithEmailAndPassword(auth, email, password); },
+    async logOut(){ return signOut(auth); },
+    getUser(){ return currentUser; },
+    async getCollectionDoc(slug){
+      if(!currentUser) return null;
+      const ref = doc(db, "users", currentUser.uid, "collections", slug);
+      const snap = await getDoc(ref);
+      return snap.exists() ? snap.data() : {};
+    },
+    async setRowOwned(slug, rowKey, value){
+      if(!currentUser) return;
+      const ref = doc(db, "users", currentUser.uid, "collections", slug);
+      try{
+        await updateDoc(ref, { [`rows.${rowKey}`]: value });
+      }catch(e){
+        // doc doesn't exist yet
+        await setDoc(ref, { rows: { [rowKey]: value } }, { merge: true });
+      }
+    }
+  };
+
+  onAuthStateChanged(auth, (user)=>{
+    currentUser = user;
+    window.dispatchEvent(new CustomEvent('fb-auth-changed', { detail: { user } }));
+  });
+</script>
 <style>
   :root{
     --bg: #15130f;
@@ -170,7 +225,18 @@
   table.coins{width:100%; border-collapse:collapse;}
   table.coins tr{border-bottom:1px solid var(--hairline);}
   table.coins td{padding:12px 10px; vertical-align:middle;}
-  table.coins td.nom{font-family:'Fraunces', serif; font-size:16px; font-weight:500; width:22%;}
+  table.coins td.nom{font-family:'Fraunces', serif; font-size:16px; font-weight:500; width:22%; position:relative; padding-left:34px;}
+  .owned-toggle{
+    position:absolute; left:0; top:50%; transform:translateY(-50%);
+    width:20px; height:20px; border-radius:50%; border:2px solid var(--hairline);
+    background:none; cursor:pointer; padding:0; transition:all .15s ease;
+  }
+  .owned-toggle:hover{border-color:var(--gold);}
+  .owned-toggle.is-owned{background:#3fae5c; border-color:#3fae5c;}
+  .owned-toggle.is-owned::after{
+    content:'✓'; color:#0e1c0f; font-size:12px; font-weight:bold; line-height:16px;
+    display:block; text-align:center;
+  }
   table.coins td.imgs{width:110px;}
   table.coins td.infos{color:var(--ink-dim); font-size:14px; line-height:1.5;}
   .coin-badges{display:flex; gap:8px;}
@@ -186,6 +252,45 @@
     position:absolute; top:-2px; right:-2px; width:16px; height:16px; border-radius:50%;
     background:#3fae5c; border:2px solid var(--bg);
   }
+  .download-bar{
+    display:none; align-items:center; justify-content:space-between; gap:14px;
+    background:rgba(63,174,92,0.1); border:1px solid #3fae5c; padding:12px 16px; margin-bottom:24px;
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:#6fcf87;
+  }
+  .download-bar button{
+    background:#3fae5c; border:none; color:#0e1c0f; font-family:'IBM Plex Mono', monospace;
+    font-size:11px; text-transform:uppercase; letter-spacing:0.06em; padding:9px 16px;
+    cursor:pointer; font-weight:600; border-radius:2px;
+  }
+  .download-bar button:hover{background:#4fc06c;}
+
+  /* ---- Auth modal ---- */
+  #authModal{
+    position:fixed; inset:0; background:rgba(10,9,6,0.92); z-index:210;
+    display:none; align-items:center; justify-content:center;
+  }
+  #authModal.open{display:flex;}
+  .auth-box{
+    position:relative; width:min(90vw, 360px); background:var(--surface);
+    border:1px solid var(--hairline); padding:32px 28px; text-align:center;
+  }
+  .auth-title{font-family:'Fraunces', serif; font-size:24px; font-weight:600; margin-bottom:22px;}
+  .auth-input{
+    width:100%; background:var(--surface2); border:1px solid var(--hairline); color:var(--ink);
+    padding:12px 14px; margin-bottom:12px; font-family:'Source Serif 4', serif; font-size:15px;
+  }
+  .auth-input:focus{outline:none; border-color:var(--gold);}
+  .auth-submit{
+    width:100%; background:var(--gold); border:none; color:#15130f; font-family:'IBM Plex Mono', monospace;
+    font-size:12px; text-transform:uppercase; letter-spacing:0.08em; padding:12px; cursor:pointer;
+    font-weight:600; margin-top:6px;
+  }
+  .auth-submit:hover{background:#e6c988;}
+  .auth-switch{font-size:13px; color:var(--ink-dim); margin-top:16px;}
+  .auth-switch a{color:var(--gold); text-decoration:none; margin-left:4px;}
+  .auth-switch a:hover{text-decoration:underline;}
+  .auth-error{color:#e08a6f; font-size:12px; margin-bottom:10px; min-height:14px;}
+  .auth-email{color:var(--ink-dim); font-size:14px; margin-bottom:18px; word-break:break-all;}
   tr.owned td.nom{color:#6fcf87;}
   tr.owned td.nom::after{
     content:'possédée'; display:block; font-family:'IBM Plex Mono', monospace;
@@ -233,6 +338,7 @@
   <nav class="tabs">
     <button id="tabMap" class="active">Carte</button>
     <button id="tabIndex">Index A-Z</button>
+    <button id="tabAccount">Se connecter</button>
   </nav>
 </header>
 
@@ -281,6 +387,27 @@
   <span class="lbclose" id="lbClose">Fermer &times;</span>
   <img id="lbImg" src="" alt="">
   <div class="lbcaption" id="lbCaption"></div>
+</div>
+
+<div id="authModal">
+  <div class="auth-box">
+    <span class="lbclose" id="authClose">Fermer &times;</span>
+    <div class="auth-title" id="authTitle">Connexion</div>
+    <div id="authLoggedIn" style="display:none;">
+      <p class="auth-email" id="authEmail"></p>
+      <button id="authLogoutBtn" class="auth-submit">Se déconnecter</button>
+    </div>
+    <div id="authForm">
+      <input type="email" id="authEmailInput" placeholder="Adresse email" class="auth-input">
+      <input type="password" id="authPasswordInput" placeholder="Mot de passe" class="auth-input">
+      <div id="authError" class="auth-error"></div>
+      <button id="authSubmitBtn" class="auth-submit">Se connecter</button>
+      <p class="auth-switch">
+        <span id="authSwitchText">Pas encore de compte ?</span>
+        <a href="#" id="authSwitchLink">Créer un compte</a>
+      </p>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -381,7 +508,90 @@ function openLightbox(src, caption){
 function closeLightbox(){ lightbox.classList.remove('open'); lbImg.src=''; }
 lightbox.addEventListener('click', closeLightbox);
 document.getElementById('lbClose').addEventListener('click', (e)=>{ e.stopPropagation(); closeLightbox(); });
-document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeLightbox(); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ closeLightbox(); closeAuthModal(); } });
+
+// ---------- Auth modal ----------
+const authModal = document.getElementById('authModal');
+const authForm = document.getElementById('authForm');
+const authLoggedIn = document.getElementById('authLoggedIn');
+const authTitle = document.getElementById('authTitle');
+const authError = document.getElementById('authError');
+const authEmailInput = document.getElementById('authEmailInput');
+const authPasswordInput = document.getElementById('authPasswordInput');
+const authSwitchText = document.getElementById('authSwitchText');
+const authSwitchLink = document.getElementById('authSwitchLink');
+const authSubmitBtn = document.getElementById('authSubmitBtn');
+const tabAccount = document.getElementById('tabAccount');
+let authMode = 'login';
+
+function openAuthModal(){
+  authError.textContent = '';
+  if(window.FB.getUser()){
+    authForm.style.display = 'none';
+    authLoggedIn.style.display = 'block';
+    authTitle.textContent = 'Mon compte';
+    document.getElementById('authEmail').textContent = window.FB.getUser().email;
+  } else {
+    authForm.style.display = 'block';
+    authLoggedIn.style.display = 'none';
+    setAuthMode('login');
+  }
+  authModal.classList.add('open');
+}
+function closeAuthModal(){ authModal.classList.remove('open'); }
+function setAuthMode(mode){
+  authMode = mode;
+  authError.textContent = '';
+  if(mode === 'login'){
+    authTitle.textContent = 'Connexion';
+    authSubmitBtn.textContent = 'Se connecter';
+    authSwitchText.textContent = 'Pas encore de compte ?';
+    authSwitchLink.textContent = 'Créer un compte';
+  } else {
+    authTitle.textContent = 'Créer un compte';
+    authSubmitBtn.textContent = "Créer mon compte";
+    authSwitchText.textContent = 'Déjà un compte ?';
+    authSwitchLink.textContent = 'Se connecter';
+  }
+}
+document.getElementById('authClose').addEventListener('click', closeAuthModal);
+authModal.addEventListener('click', (e)=>{ if(e.target === authModal) closeAuthModal(); });
+authSwitchLink.addEventListener('click', (e)=>{ e.preventDefault(); setAuthMode(authMode==='login'?'signup':'login'); });
+authSubmitBtn.addEventListener('click', async ()=>{
+  const email = authEmailInput.value.trim();
+  const password = authPasswordInput.value;
+  authError.textContent = '';
+  if(!email || !password){ authError.textContent = 'Remplis les deux champs.'; return; }
+  try{
+    if(authMode === 'login') await window.FB.logIn(email, password);
+    else await window.FB.signUp(email, password);
+    authEmailInput.value = ''; authPasswordInput.value = '';
+    closeAuthModal();
+  }catch(e){
+    const messages = {
+      'auth/invalid-email': 'Adresse email invalide.',
+      'auth/email-already-in-use': 'Un compte existe déjà avec cet email.',
+      'auth/weak-password': 'Mot de passe trop court (6 caractères minimum).',
+      'auth/invalid-credential': 'Email ou mot de passe incorrect.',
+      'auth/user-not-found': 'Aucun compte avec cet email.',
+      'auth/wrong-password': 'Mot de passe incorrect.'
+    };
+    authError.textContent = messages[e.code] || 'Une erreur est survenue.';
+  }
+});
+document.getElementById('authLogoutBtn').addEventListener('click', async ()=>{
+  await window.FB.logOut();
+  closeAuthModal();
+});
+tabAccount.addEventListener('click', openAuthModal);
+window.addEventListener('fb-auth-changed', (e)=>{
+  const user = e.detail.user;
+  tabAccount.textContent = user ? (user.email.split('@')[0]) : 'Se connecter';
+  // re-render the currently open country (if any) so toggle states reflect the right account
+  if(countryPanel.classList.contains('active') && window._currentCountryKey){
+    openCountry(window._currentCountryKey);
+  }
+});
 
 // ISO 3166-1 numeric codes per canonical French country name (primary, reliable map matching)
 const COUNTRY_ISO = {
@@ -431,6 +641,47 @@ const EN_ALIASES = {
 };
 
 // ---------- Country detail ----------
+// ---------- Ownership storage: Firestore when logged in, localStorage for guests ----------
+function getLocalOverrides(slug){
+  try{ return JSON.parse(localStorage.getItem('owned:'+slug) || '{}'); }
+  catch(e){ return {}; }
+}
+function setLocalOverride(slug, rowKey, value){
+  const ov = getLocalOverrides(slug);
+  if(value === null) delete ov[rowKey];
+  else ov[rowKey] = value;
+  localStorage.setItem('owned:'+slug, JSON.stringify(ov));
+}
+async function getOverrides(slug){
+  const user = window.FB.getUser();
+  if(user){
+    const data = await window.FB.getCollectionDoc(slug);
+    return (data && data.rows) ? data.rows : {};
+  }
+  return getLocalOverrides(slug);
+}
+async function setOverride(slug, rowKey, value){
+  const user = window.FB.getUser();
+  if(user){
+    await window.FB.setRowOwned(slug, rowKey, value);
+  } else {
+    setLocalOverride(slug, rowKey, value);
+  }
+}
+async function applyOverrides(countryData, slug){
+  const ov = await getOverrides(slug);
+  if(Object.keys(ov).length === 0) return countryData;
+  countryData.subtabs.forEach((st, si)=>{
+    st.subsections.forEach((sec, ci)=>{
+      sec.rows.forEach((r, ri)=>{
+        const key = `${si}_${ci}_${ri}`;
+        if(key in ov) r.owned = ov[key];
+      });
+    });
+  });
+  return countryData;
+}
+
 function toggleSection(block, forceOpen){
   const body = block.querySelector('.section-body');
   const isOpen = block.classList.contains('open');
@@ -445,9 +696,23 @@ function toggleSection(block, forceOpen){
   }
 }
 
-function renderSubsections(container, subsections){
+function updateCountsUI(c){
+  const nOwned = c.subtabs.reduce((a,st)=>a+st.subsections.reduce((b,s)=>b+s.rows.filter(r=>r.owned).length,0),0);
+  const nSections = c.subtabs.reduce((a,st)=>a+st.subsections.length,0);
+  const nCoins = c.subtabs.reduce((a,st)=>a+st.subsections.reduce((b,s)=>b+s.rows.length,0),0);
+  document.getElementById('cSub').textContent = `${c.subtabs.length} onglet(s) · ${nSections} série(s) · ${nCoins} pièce(s) référencée(s) · ${nOwned} possédée(s)`;
+  document.querySelectorAll('.subtab-btn').forEach((btn, si)=>{
+    const st = c.subtabs[si];
+    const owned = st.subsections.reduce((a,s)=>a+s.rows.filter(r=>r.owned).length,0);
+    const total = st.subsections.reduce((a,s)=>a+s.rows.length,0);
+    const cnt = btn.querySelector('.stcount');
+    if(cnt) cnt.textContent = `${owned}/${total} possédées`;
+  });
+}
+
+function renderSubsections(container, subsections, ctx){
   container.innerHTML = '';
-  subsections.forEach((sec, idx)=>{
+  subsections.forEach((sec, ci)=>{
     const owned = sec.rows.filter(r=>r.owned).length;
     const block = document.createElement('div');
     block.className = 'section-block';
@@ -464,14 +729,40 @@ function renderSubsections(container, subsections){
     inner.className = 'section-body-inner';
     const table = document.createElement('table');
     table.className = 'coins';
-    sec.rows.forEach(r=>{
+    sec.rows.forEach((r, ri)=>{
       const tr = document.createElement('tr');
       if(r.owned) tr.className = 'owned';
       const imgsHtml = (r.images && r.images.length)
         ? `<div class="coin-badges">${r.images.map((src,i)=>`<div class="coin-badge" data-idx="${i}"><img loading="lazy" src="${src}">${r.owned?'<span class="owned-dot"></span>':''}</div>`).join('')}</div>`
         : `<span class="no-img">&mdash;</span>`;
-      tr.innerHTML = `<td class="nom">${r.nom||''}</td><td class="imgs">${imgsHtml}</td><td class="infos">${(r.infos||'').replace(/\n/g,'<br>')}</td>`;
+      tr.innerHTML = `<td class="nom"><button class="owned-toggle${r.owned?' is-owned':''}" title="Marquer comme possédée"></button>${r.nom||''}</td><td class="imgs">${imgsHtml}</td><td class="infos">${(r.infos||'').replace(/\n/g,'<br>')}</td>`;
       table.appendChild(tr);
+
+      const ownedBtn = tr.querySelector('.owned-toggle');
+      ownedBtn.addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        if(!window.FB.getUser()){
+          openAuthModal();
+          return;
+        }
+        r.owned = !r.owned;
+        ownedBtn.classList.toggle('is-owned', r.owned);
+        tr.classList.toggle('owned', r.owned);
+        const dot = tr.querySelector('.owned-dot');
+        if(r.owned && !dot && r.images && r.images.length){
+          tr.querySelectorAll('.coin-badge').forEach(b=>{
+            if(!b.querySelector('.owned-dot')) b.insertAdjacentHTML('beforeend', '<span class="owned-dot"></span>');
+          });
+        } else if(!r.owned){
+          tr.querySelectorAll('.owned-dot').forEach(d=>d.remove());
+        }
+        const rowKey = `${ctx.si}_${ci}_${ri}`;
+        const secOwned = sec.rows.filter(x=>x.owned).length;
+        toggle.querySelector('.scount').textContent = `${secOwned}/${sec.rows.length} possédées`;
+        updateCountsUI(ctx.countryData);
+        await setOverride(ctx.slug, rowKey, r.owned);
+      });
+
       tr.querySelectorAll('.coin-badge').forEach((badge, i)=>{
         badge.addEventListener('click', (e)=>{
           e.stopPropagation();
@@ -484,13 +775,26 @@ function renderSubsections(container, subsections){
     body.appendChild(inner);
     block.appendChild(body);
     container.appendChild(block);
-    if(idx===0) toggleSection(block, true);
+    if(ci===0) toggleSection(block, true);
   });
+}
+
+function downloadCountryJSON(c, slug){
+  const blob = new Blob([JSON.stringify(c)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${slug}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function openCountry(key){
   const meta = indexByKey[key];
   if(!meta) return;
+  window._currentCountryKey = key;
   showView('country');
   document.getElementById('cName').textContent = key;
   document.getElementById('cEnName').textContent = meta.en_name || '';
@@ -499,25 +803,35 @@ async function openCountry(key){
   container.innerHTML = '';
 
   const c = await fetchCountry(meta.slug);
+  await applyOverrides(c, meta.slug);
 
   const nSections = c.subtabs.reduce((a,st)=>a+st.subsections.length,0);
   const nCoins = c.subtabs.reduce((a,st)=>a+st.subsections.reduce((b,s)=>b+s.rows.length,0),0);
   const nOwned = c.subtabs.reduce((a,st)=>a+st.subsections.reduce((b,s)=>b+s.rows.filter(r=>r.owned).length,0),0);
   document.getElementById('cSub').textContent = `${c.subtabs.length} onglet(s) · ${nSections} série(s) · ${nCoins} pièce(s) référencée(s) · ${nOwned} possédée(s)`;
 
+  if(!window.FB.getUser()){
+    const hint = document.createElement('div');
+    hint.className = 'download-bar';
+    hint.style.display = 'flex';
+    hint.innerHTML = `<span>Connecte-toi pour enregistrer les pièces que tu possèdes</span><button id="hintLoginBtn">Se connecter</button>`;
+    container.appendChild(hint);
+    hint.querySelector('#hintLoginBtn').addEventListener('click', openAuthModal);
+  }
+
   const bar = document.createElement('div');
   bar.className = 'subtab-bar';
   const panelsWrap = document.createElement('div');
 
-  c.subtabs.forEach((st, i)=>{
+  c.subtabs.forEach((st, si)=>{
     const owned = st.subsections.reduce((a,s)=>a+s.rows.filter(r=>r.owned).length,0);
     const total = st.subsections.reduce((a,s)=>a+s.rows.length,0);
     const btn = document.createElement('button');
-    btn.className = 'subtab-btn' + (i===0?' active':'');
+    btn.className = 'subtab-btn' + (si===0?' active':'');
     btn.innerHTML = `${st.title}<span class="stcount">${owned}/${total} possédées</span>`;
     const panel = document.createElement('div');
-    panel.className = 'subtab-panel' + (i===0?' active':'');
-    renderSubsections(panel, st.subsections);
+    panel.className = 'subtab-panel' + (si===0?' active':'');
+    renderSubsections(panel, st.subsections, {si, slug: meta.slug, countryData: c});
     btn.addEventListener('click', ()=>{
       bar.querySelectorAll('.subtab-btn').forEach(b=>b.classList.remove('active'));
       panelsWrap.querySelectorAll('.subtab-panel').forEach(p=>p.classList.remove('active'));
